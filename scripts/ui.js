@@ -81,6 +81,12 @@ function init() {
     if (persisted.skins)  state.skins  = Object.assign(state.skins  || { equipped:"default", unlocked:["default"] }, persisted.skins);
     if (Array.isArray(persisted.usedActivationCodes)) state.usedActivationCodes = persisted.usedActivationCodes;
     if (persisted.activations) state.activations = Object.assign(state.activations || { redeemed:0, totalReceived:0, generated:0 }, persisted.activations);
+    /* Per-nonce redemption counters for HX1/HX2 codes, and the set of
+       direct-grant nonces this device has already credited. Both are
+       written to disk by buildStateSnapshot; restoring them here is
+       what keeps the activation cap honest across reloads. */
+    if (persisted.activationUsage && typeof persisted.activationUsage === "object") state.activationUsage = persisted.activationUsage;
+    if (Array.isArray(persisted.claimedGrants)) state.claimedGrants = persisted.claimedGrants;
   }
 
   /* Resurrect a permanent player ID from a dedicated key. This survives
@@ -260,11 +266,19 @@ async function handleLoginConfirm(){
     state.profile.lastLoginDay = 0;
     state.profile.loginDays = [];
     /* Also reset wallet / skins / stats so the fresh account doesn't
-       inherit the previously-active account's progress. */
+       inherit the previously-active account's progress. Anything that
+       is per-profile and not strictly device-wide must be cleared here
+       or the new account will silently inherit the previous one. */
     if (state.wallet) { state.wallet.coins = 0; state.wallet.lastDailyClaim = 0; }
     if (state.skins)  { state.skins.equipped = "default"; state.skins.unlocked = ["default"]; }
     if (state.achievements) state.achievements = new Set();
     state.usedActivationCodes = [];
+    state.activationUsage = {};
+    state.activations     = { redeemed:0, totalReceived:0, generated:0, history:[] };
+    state.claimedGrants   = [];
+    state.stats = { games:0, best:0, bestRun:0, totalScore:0, totalScoreFromGames:0, totalTimeMs:0, lines:0, bestCombo:0, placedTotal:0, xp:0 };
+    state.hidden = {};
+    state.dailyTasks = { date:"", tasks:[] };
   }
   if (typeof savePermanentPlayerId === "function") savePermanentPlayerId(state.profile.id);
   registerLoginDay();
@@ -285,7 +299,7 @@ async function handleLoginConfirm(){
    replace `state` because other modules hold a direct reference to it. */
 function applyLoadedSnapshot(snap){
   if(!snap || typeof snap !== "object") return;
-  const k = ["profile","stats","settings","hidden","dailyTasks","leaderboards","wallet","skins","usedActivationCodes","activations"];
+  const k = ["profile","stats","settings","hidden","dailyTasks","leaderboards","wallet","skins","usedActivationCodes","activations","activationUsage","claimedGrants"];
   k.forEach(key => { if(snap[key] !== undefined) state[key] = snap[key]; });
   state.achievements = new Set(Array.isArray(snap.achievements) ? snap.achievements : []);
   state.run = null;
